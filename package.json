@@ -1,7 +1,7 @@
 {
   "name": "krystal",
   "version": "0.5.0",
-  "description": "",
+  "description": "Krystal is an experimental youtube music player",
   "main": "index.js",
   "scripts": {
     "start": "electron ."
