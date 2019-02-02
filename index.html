@@ -118,7 +118,7 @@ const searchYoutube = (query) => {
         let loading = document.createElement('div')
         loading.className = 'loading'
         document.getElementById('search-Listing').appendChild(loading)
-        request('http://localhost:2067/?q=' + query,(err,resp,body) => {
+        request('https://krystalserver.glitch.me/?q=' + query,(err,resp,body) => {
             if(err) return err
             res(body)
         })
