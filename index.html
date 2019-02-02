@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="src/default.css">
+    <title>Krystal</title>
+</head>
+<body>
+    <div class="overlay">
+        <div class="contextMenu hidden" id="contextmenu">
+            <div class="item">Remove</div>
+        </div>
+    </div>
+    <div id="leftSide" class="visible">
+        <div id="main">
+            <div class="dragable winBar"></div>
+            <div class="windowButton">
+                <div class="close button" id="closeApp"></div>
+                <div class="min button" id="minApp"></div>
+            </div>
+            <div class="video">
+                <video id="video-player" width="640"></video>
+            </div>
+            <div class="playerTimePosition" id="player-positionWrapper">
+                <div class="bar" id="player-positionBar" style="width:0%"></div>
+                <div class="handle" id="player-positionBarHandle" style="left:0%"></div>
+            </div>
+            <div class="player">
+                <div class="timeSinceStart" id="player-timeSinceStart">0:00</div>
+                <div class="center">
+                    <div class="prev button" id="player-prev"></div>
+                    <div class="play button" state="play" id="player-play"></div>
+                    <div class="next button" id="player-next"></div>
+                </div>
+                <div class="timeUntilEnd" id="player-timeUntilEnd">0:00</div>
+                <div class="changeAudio">
+                    <div class="audio button" id="player-audioButton" level="3"></div>
+                    <div class="audioSlider" id="player-audioSlider">
+                        <div class="bar" id="player-audioSliderBar"></div>
+                        <div class="handle"  id="player-audioSliderHandle"></div>
+                        <div class="filler" id="player-audioSliderFiller"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="playList">
+            <div class="header">
+                <input class="name" id="playList-Name" type="text" value="ThuverX's playlist"></input>
+                <div class="switchButton" id="screen-switchToSearch"></div>
+            </div>
+            <div class="list" id="playList-list"></div>
+        </div>
+    </div>
+    <div id="rightSide">
+        <div id="search">
+            <div class="header left">
+                <div class="switchButton" id="screen-switchToPlayer"></div>
+            </div>
+            <div class="dragable winBar"></div>
+            <div class="windowButton">
+                <div class="close button" id="closeApp"></div>
+                <div class="min button" id="minApp"></div>
+            </div>
+            <div class="sideBar">
+                <div class="search button" id="switch-searchWindow"></div>
+                <div class="playlist button" id="switch-playlists"></div>
+                <div class="settings button" id="switch-settingsMenu"></div>
+            </div>
+            <div class="inner">
+                <div class="searchWindow" id="menu-searchWindow">
+                    <div class="searchWrapper">
+                        <input id="search-Input" type="text" placeholder="Search..."></input>
+                    </div>
+                    <div class="listing" id="search-Listing">
+                        <div class="loading"></div>
+                    </div>
+                </div>
+                <div class="playListListing hidden" id="menu-playlists">
+                    <div class="playLists" id="playlist-listing">
+                        <div class="playListButton">
+                            <div class="text">+</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="settingsMenu hidden" id="menu-settingsMenu">
+                    <div class="notice">Sorry, nothing here yet</div>
+                </div>
+                <div class="playListItem hidden" id="menu-playListItem"></div>
+            </div>
+        </div>
+    </div>
+<script>
+const ytdl = require('ytdl-core')
+let player = document.getElementById('video-player')
+
+if(!window.localStorage.getItem('lists')) window.localStorage.setItem('lists',JSON.stringify([]))
+
+class PlayListItem{
+    constructor(id,name,image,index){
+        this.name = name
+        this.id = id
+        this.index = index
+        this.dataCache = {image}
+    }
+}
+
+const getPlayListItemFromUrl = (url,index= 1) => {
+    return new Promise((res,rej) => {
+        ytdl.getInfo(url,(err,data) => {
+            if(err) return err
+            res(new PlayListItem(data.video_id,data.title,data.thumbnail_url))
+        })
+    })
+}
+const request = require('request')
+const searchYoutube = (query) => {
+    return new Promise((res,rej) => {
+        document.getElementById('search-Listing').innerHTML = ""
+        let loading = document.createElement('div')
+        loading.className = 'loading'
+        document.getElementById('search-Listing').appendChild(loading)
+        request('http://localhost:2067/?q=' + query,(err,resp,body) => {
+            if(err) return err
+            res(body)
+        })
+    })
+}
+
+document.getElementById('search-Input').onchange = () => {
+    searchYoutube(document.getElementById('search-Input').value).then(renderYoutubeResults)
+}
+
+const renderYoutubeResults = (body) => {
+    document.getElementById('search-Listing').innerHTML = ""
+    JSON.parse(body).forEach(result => {
+        let div = document.createElement('div')
+        div.className = "searchItem"
+        div.setAttribute('ytid',result.id.videoId)
+
+        let ImageDiv = document.createElement('div')
+        ImageDiv.className = 'image'
+        ImageDiv.style.background = `url(${result.snippet.thumbnails.high.url}) center/cover no-repeat`
+
+        let NameDiv = document.createElement('div')
+        NameDiv.className = 'name'
+        NameDiv.innerText = result.snippet.title
+
+        let AddButton = document.createElement('div')
+        AddButton.className = 'add'
+
+        div.onclick = (e) => {
+            if(e.target.className !== "add") {
+                slidePage()
+                loadVideo(result.id.videoId).then(() => {
+                    player.play()
+                })
+            }
+        }
+
+        AddButton.onclick = () => {
+            getPlayListItemFromUrl(result.id.videoId).then((song) => {
+                currentPlayList.add(song)
+            })
+        }
+
+        div.appendChild(ImageDiv)
+        div.appendChild(NameDiv)
+        div.appendChild(AddButton)
+
+        document.getElementById('search-Listing').appendChild(div)
+    })
+}
+
+class PlayList {
+    constructor(name = "Default Playlist",...items){
+        this.list = []
+        this.name = name
+        this.id = Math.round(Math.random()*100000)
+        this.playing = -1
+        if(items) this.list = [...items]
+    }
+    setName(name){
+        let listArray = JSON.parse(window.localStorage.getItem('lists'))
+        let index = listArray.findIndex(i => i.id == this.id)
+        this.name = name
+        if(index !== -1) {
+            listArray[index] = this
+        }
+        else listArray.push(this)
+
+        window.localStorage.setItem('lists',JSON.stringify(listArray))
+    }
+    load(){
+        document.getElementById('playList-Name').value = this.name
+        document.getElementById('playList-Name').onchange = () => {
+            this.setName(document.getElementById('playList-Name').value)
+        }
+        this.render(document.getElementById('playList-list'))
+    }
+    next(){
+        if(this.playing < this.list.length-1){
+            this.playing++
+            this.play()
+        }
+    }
+    prev(){
+        if(this.playing > 0){
+            this.playing--
+            this.play()
+        }
+    }
+    play(){
+        loadVideo(this.list[this.playing].id).then(() => {
+            player.pause()
+            player.play()
+        })
+    }
+    render(parent){
+        parent.innerHTML = ""
+        this.list.sort((a,b) => a.index-b.index).forEach((item,i) => {
+            let div = document.createElement('div')
+            div.className = "playListListItem"
+            div.setAttribute('ytid',item.id)
+
+            div.onclick = () => {
+                this.playing = i
+                this.play()
+            }
+
+            let IDdiv = document.createElement('div')
+            IDdiv.className = 'id'
+            IDdiv.innerText = i+1
+
+            let ImageDiv = document.createElement('div')
+            ImageDiv.className = 'image'
+            ImageDiv.style.background = `url(${item.dataCache.image}) center/cover no-repeat`
+
+            let NameDiv = document.createElement('div')
+            NameDiv.className = 'name'
+            NameDiv.innerText = item.name
+
+            div.appendChild(IDdiv)
+            div.appendChild(ImageDiv)
+            div.appendChild(NameDiv)
+
+            parent.appendChild(div)
+        })
+    }
+    add(playListItem){
+        let exist = this.list.find(i => i.id == playListItem.id)
+        if(!exist){
+            this.list.push(playListItem)
+        }
+        this.load()
+        this.save()
+    }
+    remove(fn){
+        this.list.splice(this.list.findIndex(fn),1)
+        this.load()
+        this.save()
+    }
+    delete(){
+        let listArray = JSON.parse(window.localStorage.getItem('lists'))
+        listArray.splice(listArray.findIndex(i => i.id == this.id),1)
+        window.localStorage.setItem('lists',JSON.stringify(listArray))
+    }
+    save(){
+        let listArray = JSON.parse(window.localStorage.getItem('lists'))
+        if(listArray.find(i => i.id == this.id)) listArray[listArray.findIndex(i => i.id == this.id)] = this
+        else listArray.push(this)
+        window.localStorage.setItem('lists',JSON.stringify(listArray))
+    }
+    loadFromStorage(){
+        let listArray = JSON.parse(window.localStorage.getItem('lists'))
+        if(listArray.find(i => i.id == this.id)){
+            this.list = listArray.find(i => i.id == this.id).list
+            this.name = listArray.find(i => i.id == this.id).name
+            this.id = listArray.find(i => i.id == this.id).id
+        }
+        this.save()
+    }
+    loadFromStorageWithId(id){
+        let listArray = JSON.parse(window.localStorage.getItem('lists'))
+        if(listArray.find(i => i.id == id)){
+            this.list = listArray.find(i => i.id == id).list
+            this.name = listArray.find(i => i.id == id).name
+            this.id = listArray.find(i => i.id == id).id
+        }
+        this.save()
+    }
+}
+
+const renderPlayListItems = (parent,playList) => {
+    parent.innerHTML = ""
+    playList.list.forEach((item,i) => {
+        let div = document.createElement('div')
+        div.className = "playItem"
+        div.setAttribute('ytid',item.id)
+
+        let ImageDiv = document.createElement('div')
+        ImageDiv.className = 'image'
+        ImageDiv.style.background = `url(${item.dataCache.image}) center/cover no-repeat`
+
+        let NameDiv = document.createElement('div')
+        NameDiv.className = 'name'
+        NameDiv.innerText = item.name
+
+        let idDiv = document.createElement('div')
+        idDiv.className = 'id'
+        idDiv.innerText = i+1
+
+
+        div.onclick = (e) => {
+            if(e.target.className !== "add") {
+                slidePage()
+                loadVideo(item.id).then(() => {
+                    player.play()
+                })
+            }
+        }
+
+        div.appendChild(idDiv)
+        div.appendChild(ImageDiv)
+        div.appendChild(NameDiv)
+
+        parent.appendChild(div)
+    })
+}
+
+const showPlayList = (id) => {
+    let lists = JSON.parse(window.localStorage.getItem('lists'))
+    let list = new PlayList()
+    list.loadFromStorageWithId(id)
+    let playlistitem = document.getElementById('menu-playListItem')
+    playlistitem.setAttribute('plid',id)
+    document.getElementById('menu-searchWindow').classList.add('hidden')
+    document.getElementById('menu-playlists').classList.add('hidden')
+    document.getElementById('menu-settingsMenu').classList.add('hidden')
+    playlistitem.classList.remove('hidden')
+    playlistitem.innerHTML = ""
+    let name = document.createElement('div')
+    name.className = "searchWrapper"
+
+    let playButton = document.createElement('div')
+    playButton.className = 'playButton'
+
+    playButton.onclick = () => {
+        slidePage()
+        let lists = JSON.parse(window.localStorage.getItem('lists'))
+        let list = new PlayList()
+        list.loadFromStorageWithId(document.getElementById('menu-playListItem').getAttribute('plid'))
+        currentPlayList = list
+        currentPlayList.load()
+        let vid = currentPlayList.list[0]
+        if(vid){
+            loadVideo(vid.id).then(() => {
+                player.play()
+            })
+        }
+    }
+
+    let input = document.createElement('input')
+    input.value = list.name
+    input.onchange = () => list.setName(input.value)
+    name.appendChild(input)
+    name.appendChild(playButton)
+
+    let listing = document.createElement('div')
+    listing.className = 'listing'
+
+    playlistitem.appendChild(listing)
+
+    playlistitem.appendChild(name)
+    renderPlayListItems(listing,list)
+
+}
+
+const showPlayListing = () => {
+    let lists = JSON.parse(window.localStorage.getItem('lists'))
+    let parent = document.getElementById('playlist-listing')
+    parent.innerHTML = ""
+
+    let addDiv = document.createElement('div')
+    addDiv.className = 'playListButton addButton'
+    addDiv.onclick = () => {
+        let playlist = new PlayList('Playlist ' + lists.length)
+        playlist.load()
+        playlist.save()
+        showPlayListing()
+    }
+
+    let addText = document.createElement('div')
+    addText.className = 'text'
+    addText.innerText = '+'
+
+    addDiv.appendChild(addText)
+    parent.appendChild(addDiv)
+
+    lists.forEach((item) => {
+        let div = document.createElement('div')
+        div.className = 'playListButton'
+        div.setAttribute('plid',item.id)
+
+        div.onclick = (e) => showPlayList(item.id)
+
+        let text = document.createElement('div')
+        text.className = 'text'
+        text.innerText = item.name
+
+        div.appendChild(text)
+        parent.appendChild(div)
+    })
+}
+
+document.getElementById('switch-searchWindow').onclick = () => {
+    document.getElementById('menu-searchWindow').classList.remove('hidden')
+    document.getElementById('menu-playlists').classList.add('hidden')
+    document.getElementById('menu-settingsMenu').classList.add('hidden')
+    document.getElementById('menu-playListItem').classList.add('hidden')
+}
+
+document.getElementById('switch-playlists').onclick = () => {
+    document.getElementById('menu-searchWindow').classList.add('hidden')
+    document.getElementById('menu-playlists').classList.remove('hidden')
+    document.getElementById('menu-settingsMenu').classList.add('hidden')
+    document.getElementById('menu-playListItem').classList.add('hidden')
+    showPlayListing()
+}
+
+document.getElementById('switch-settingsMenu').onclick = () => {
+    document.getElementById('menu-searchWindow').classList.add('hidden')
+    document.getElementById('menu-playlists').classList.add('hidden')
+    document.getElementById('menu-settingsMenu').classList.remove('hidden')
+    document.getElementById('menu-playListItem').classList.add('hidden')
+}
+
+const slidePage = () => {
+    document.getElementById('leftSide').classList.toggle('visible')
+    document.getElementById('rightSide').classList.toggle('visible')
+}
+
+// check for old playlist first
+let old = JSON.parse(window.localStorage.getItem('lists')).find(i => i.name == "Default Playlist")
+let currentPlayList = new PlayList()
+if(old) currentPlayList.loadFromStorageWithId(old.id)
+else currentPlayList.loadFromStorage()
+currentPlayList.load()
+
+let maxTime = 0
+let beginTime = 0
+let song = "none"
+player.volume = 0.5
+
+searchYoutube('').then(renderYoutubeResults)
+
+const createContextMenu = (x,y,...items) => {
+    let menu = document.getElementById('contextmenu')
+    menu.classList.remove('hidden')
+    menu.style.top = y + "px"
+    menu.style.left = x + "px"
+    menu.innerHTML = ""
+
+    items.forEach(item => {
+        let div = document.createElement('div')
+        div.className = "item"
+        div.innerHTML = item.text
+        div.onclick = item.onclick
+        menu.appendChild(div)
+    })
+}
+
+document.oncontextmenu = (e) => {
+    e.preventDefault()
+    if(e.target.className == "playListListItem" || e.target.parentElement.className == "playListListItem"){
+        let el = e.target.className == "playListListItem"?e.target:e.target.parentElement.className == "playListListItem"?e.target.parentElement:null
+        
+        createContextMenu(e.clientX,e.clientY,{text:`Remove from playlist`,onclick:() => {
+            currentPlayList.remove(i => i.id == el.getAttribute('ytid'))
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }})
+    }
+    else if(e.target.className == "searchItem" || e.target.parentElement.className == "searchItem"){
+        let el = e.target.className == "searchItem"?e.target:e.target.parentElement.className == "searchItem"?e.target.parentElement:null
+        
+        createContextMenu(e.clientX,e.clientY,{text:"Play",onclick:() => {
+            slidePage()
+            loadVideo(el.getAttribute('ytid')).then(() => {
+                player.play()
+            })
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }},{text:`Add to <a class="playListName">${currentPlayList.name}</a>`,onclick:() => {
+            getPlayListItemFromUrl(el.getAttribute('ytid')).then((song) => {
+                currentPlayList.add(song)
+            })
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }})
+    }
+    else if(e.target.className == "playItem" || e.target.parentElement.className == "playItem"){
+        let el = e.target.className == "playItem"?e.target:e.target.parentElement.className == "playItem"?e.target.parentElement:null
+        
+        createContextMenu(e.clientX,e.clientY,{text:"Play",onclick:() => {
+            slidePage()
+            loadVideo(el.getAttribute('ytid')).then(() => {
+                player.play()
+            })
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }},{text:`Remove from playlist`,onclick:() => {
+            currentPlayList.remove(i => i.id == el.getAttribute('ytid'))
+            showPlayList(document.getElementById('menu-playListItem').getAttribute('plid'))
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }})
+    }
+    else if(e.target.className == "playListButton" || e.target.parentElement.className == "playListButton"){
+        let el = e.target.className == "playListButton"?e.target:e.target.parentElement.className == "playListButton"?e.target.parentElement:null
+        
+        if(el.classList.contains('addButton')) return
+
+        createContextMenu(e.clientX,e.clientY,{text:"Play",onclick:() => {
+            slidePage()
+            let lists = JSON.parse(window.localStorage.getItem('lists'))
+            let list = new PlayList()
+            list.loadFromStorageWithId(el.getAttribute('plid'))
+            currentPlayList = list
+            currentPlayList.load()
+            let vid = currentPlayList.list[0]
+            if(vid){
+                loadVideo(vid.id).then(() => {
+                    player.play()
+                })
+            }
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }},{text:"Select",onclick:() => {
+            let lists = JSON.parse(window.localStorage.getItem('lists'))
+            let list = new PlayList()
+            list.loadFromStorageWithId(el.getAttribute('plid'))
+            currentPlayList = list
+            currentPlayList.load()
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }},{text:"<a style='color:red;font-weight:bold'>Delete</a>",onclick:() => {
+            let lists = JSON.parse(window.localStorage.getItem('lists'))
+            let list = new PlayList()
+            list.loadFromStorageWithId(el.getAttribute('plid'))
+            list.delete()
+            showPlayListing()
+            document.querySelector('.contextMenu').classList.add('hidden')
+        }})
+    }
+    else{
+        document.querySelector('.contextMenu').classList.add('hidden')
+    }
+
+    if(!e.target.classList.contains("audio") && !e.target.classList.contains("audioSlider") && !e.target.parentElement.classList.contains("audioSlider")){
+        document.getElementById('player-audioSlider').classList.remove('visible')
+    }
+}
+
+document.onclick = (e) => {
+    if(!e.target) return
+    if(!e.target.classList.contains("contextMenu") && !e.target.parentElement.classList.contains("contextMenu")){
+        document.querySelector('.contextMenu').classList.add('hidden')
+    }
+    if(!e.target.classList.contains("audio") && !e.target.classList.contains("audioSlider") && !e.target.parentElement.classList.contains("audioSlider")){
+        document.getElementById('player-audioSlider').classList.remove('visible')
+    }
+}
+
+const loadVideo = (url) => {
+    return new Promise((res,rej) => {
+        ytdl.getInfo(url,(err,data) => {
+            if(err) return rej(err)
+            player.src = data.formats[0].url
+            maxTime = data.length_seconds
+            beginTime = Date.now()
+            song = data.title
+            res()
+        })
+    })
+}
+
+const toReadAbleTime = (time) => {
+    let minutes = Math.floor(time / 60)
+    let seconds = Math.floor(time - minutes * 60)
+
+    if(seconds.toString().length == 1) seconds = "0" + seconds
+
+    return `${minutes}:${seconds}`
+}
+
+document.getElementById('player-play').onclick = (e) => {
+    if(player.paused){
+        if(player.src) {
+            player.play()
+            e.target.setAttribute('state','pause')
+        }
+        if(!player.src) {
+            currentPlayList.playing = 0
+            currentPlayList.play()
+            e.target.setAttribute('state','pause')
+        }
+    }
+    else{
+        if(player.src) player.pause()
+        if(player.src) e.target.setAttribute('state','play')
+    }
+}
+
+let positionWrapper = document.getElementById('player-positionWrapper')
+let holdingTimePosition = false
+positionWrapper.onmousedown = (e) => {
+    holdingTimePosition = true
+    let rect = document.getElementById('main').getBoundingClientRect()
+    player.currentTime = maxTime / rect.width * e.clientX
+}
+positionWrapper.onmousemove = (e) => {
+    let rect = document.getElementById('main').getBoundingClientRect()
+    if(holdingTimePosition) player.currentTime = maxTime / rect.width * e.clientX
+}
+
+positionWrapper.onmouseup = (e) => {
+    holdingTimePosition = false
+    let rect = document.getElementById('main').getBoundingClientRect()
+    if(holdingTimePosition) player.currentTime = maxTime / rect.width * e.clientX
+}
+
+let audioSlider = document.getElementById('player-audioSliderBar')
+let holdingAudioSlider = false
+
+const volumeChangeEvent = () => {
+    let vol = parseFloat(audioSlider.getAttribute('value'))
+    if(vol < 0.08) vol = 0
+    let icon = 1
+    if(vol > 0.7) icon = 3
+    if(vol > 0.3 && vol < 0.7) icon = 2
+    if(vol < 0.3) icon = 1
+    if(vol == 0) icon = 0
+    document.getElementById('player-audioButton').setAttribute('level',icon.toString())
+
+    player.volume = vol/2
+}
+
+audioSlider.onmousedown = (e) => {
+    holdingAudioSlider = true
+    let rect = e.target.getBoundingClientRect();
+    let y = e.clientY - rect.top
+    document.getElementById('player-audioSliderHandle').style.bottom = (100-y) + 5 + "px"
+    document.getElementById('player-audioSliderFiller').style.height = (100-y) + "px"
+    audioSlider.setAttribute('value',Math.round(((100 - y)/100)*10)/10)
+    volumeChangeEvent()
+}
+
+audioSlider.onmousemove = (e) => {
+    let rect = e.target.getBoundingClientRect();
+    let y = e.clientY - rect.top
+    if(holdingAudioSlider) document.getElementById('player-audioSliderHandle').style.bottom = (100-y) + 5 + "px"
+    if(holdingAudioSlider) document.getElementById('player-audioSliderFiller').style.height = (100-y) + "px"
+    if(holdingAudioSlider) audioSlider.setAttribute('value',Math.round(((100 - y)/100)*10)/10)
+    if(holdingAudioSlider) volumeChangeEvent()
+}
+
+audioSlider.onmouseup = (e) => {
+    holdingAudioSlider = false
+    let rect = e.target.getBoundingClientRect();
+    let y = e.clientY - rect.top
+    if(holdingAudioSlider) document.getElementById('player-audioSliderHandle').style.bottom = (100-y) + 5 + "px"
+    if(holdingAudioSlider) document.getElementById('player-audioSliderFiller').style.height = (100-y) + "px"
+    if(holdingAudioSlider) audioSlider.setAttribute('value',Math.round(((100 - y)/100)*10)/10)
+    if(holdingAudioSlider) volumeChangeEvent()
+}
+
+document.onmouseup = (e) => {
+    holdingTimePosition = false
+    holdingAudioSlider = false
+}
+
+document.getElementById('player-audioButton').onclick = (e) => {
+    document.getElementById('player-audioSlider').classList.toggle('visible')
+}
+
+
+player.ontimeupdate = () => {
+    document.getElementById('player-timeSinceStart').innerText = toReadAbleTime(player.currentTime)
+    document.getElementById('player-timeUntilEnd').innerText = toReadAbleTime(maxTime - player.currentTime)
+    document.getElementById('player-positionBar').style.width = 100 / maxTime * player.currentTime + "%"
+    document.getElementById('player-positionBarHandle').style.left = 100 / maxTime * player.currentTime + "%"
+    if(!player.paused){
+        document.getElementById('player-play').setAttribute('state','pause')
+    }
+    else{
+        document.getElementById('player-play').setAttribute('state','play')
+    }
+}
+player.onended = () => {
+    document.getElementById('player-play').setAttribute('state','play')
+    currentPlayList.next()
+}
+
+document.getElementById('screen-switchToSearch').onclick = document.getElementById('screen-switchToPlayer').onclick = () => {
+    slidePage()
+}
+
+
+document.getElementById('player-next').onclick = () => {
+    currentPlayList.next()
+}
+
+document.getElementById('player-prev').onclick = () => {
+    currentPlayList.prev()
+}
+
+const electron = {ipcRenderer} = require('electron')
+let w = electron.remote.getCurrentWindow()
+
+
+document.querySelectorAll('.close.button').forEach(e => e.onclick = () => w.close())
+document.querySelectorAll('.min.button').forEach(e => e.onclick = () => w.minimize())
+
+const updateRPC = () => {
+    let data = {
+        state: 'Idle',
+        largeImageKey: 'krystal',
+        instance: true,
+    }
+    if(song !== 'none' && !player.paused){
+        data.details = song
+        if(currentPlayList.list.find(i => i.name === song)){
+            data.state = `in ${currentPlayList.name}`
+        }
+        data.startTimestamp = beginTime
+    }
+    else if(player.paused && song !== 'none'){
+        data.details = song
+        data.state = 'Paused'
+    }
+
+    ipcRenderer.send('updateRPC',data)
+}
+
+updateRPC()
+
+setInterval(updateRPC,15000)
+
+
+</script>
+</body>
+</html>

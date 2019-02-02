@@ -1,0 +1,19 @@
+{
+  "name": "krystal",
+  "version": "0.5.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "ThuverX",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^4.0.2"
+  },
+  "dependencies": {
+    "discord-rich-presence": "0.0.8",
+    "request": "^2.88.0",
+    "ytdl-core": "^0.29.1"
+  }
+}
